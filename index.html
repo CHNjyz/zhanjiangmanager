@@ -55,11 +55,11 @@
         i { pointer-events: none; }
         button i { pointer-events: auto; }
     </style>
-    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="container">
-    <!-- 登录区域 - 用户名密码登录 -->
+    <!-- 登录区域 -->
     <div id="loginPanel" class="login-wrapper">
         <div class="login-card">
             <div class="login-header">
@@ -68,8 +68,8 @@
                 <p>登录后管理您的菜园</p>
             </div>
             <div class="input-group">
-                <label><i class="fas fa-user"></i> 用户名</label>
-                <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="off">
+                <label><i class="fas fa-envelope"></i> 用户名</label>
+                <input type="email" id="loginEmail" placeholder="your@email.com">
             </div>
             <div class="input-group">
                 <label><i class="fas fa-lock"></i> 密码</label>
@@ -82,7 +82,7 @@
         </div>
     </div>
 
-    <!-- 主应用面板（登录后显示） -->
+    <!-- 主应用面板 -->
     <div id="appPanel" style="display: none;">
         <div class="app-header">
             <div class="logo"><i class="fas fa-carrot"></i> 我的菜地</div>
@@ -154,9 +154,6 @@
     const SUPABASE_URL = 'https://rqqmanysmubzlkevkmhj.supabase.co';      // 替换为您的 Project URL
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcW1hbnlzbXViemxrZXZrbWhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwOTQ5OTEsImV4cCI6MjA5MDY3MDk5MX0.0EBYH6XBVhAbXyqzMponf1cIVCK1Z4aEJkwZ4Zc8AZs';  // 替换为您的 anon public key
     
-    // 用户名转邮箱的固定域名（管理员创建用户时需使用此规则）
-    const USERNAME_DOMAIN = '@local.com';  // 例如：用户名为"张三"，则邮箱为"张三@local.com"
-    
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     let currentUser = null;
@@ -182,11 +179,6 @@
             if(m==='>') return '&gt;'; 
             return m;
         }); 
-    }
-
-    // 将用户名转换为邮箱
-    function usernameToEmail(username) {
-        return username.trim() + USERNAME_DOMAIN;
     }
 
     // ========== 云端数据操作 ==========
@@ -227,8 +219,11 @@
     }
 
     async function deletePlot(plotId) {
+        // 先删除关联的施肥记录
         await supabase.from('fertilizations').delete().eq('plot_id', plotId);
+        // 再删除关联的照片记录
         await supabase.from('photos').delete().eq('plot_id', plotId);
+        // 最后删除菜地
         const { error } = await supabase
             .from('plots')
             .delete()
@@ -280,6 +275,7 @@
 
     async function addPhotoRecord(plotId, imageData) {
         try {
+            // 将 base64 转换为 Blob
             const base64Data = imageData.split(',')[1];
             const byteCharacters = atob(base64Data);
             const byteArrays = [];
@@ -293,9 +289,11 @@
             }
             const blob = new Blob(byteArrays, { type: 'image/jpeg' });
             
+            // 生成唯一文件名
             const fileName = `${Date.now()}.jpg`;
             const filePath = `${currentUser.id}/${fileName}`;
             
+            // 上传到 Storage
             const { error: uploadError } = await supabase.storage
                 .from('garden-photos')
                 .upload(filePath, blob);
@@ -306,10 +304,12 @@
                 return;
             }
             
+            // 获取公开 URL
             const { data: urlData } = supabase.storage
                 .from('garden-photos')
                 .getPublicUrl(filePath);
             
+            // 保存记录到数据库
             const { error: insertError } = await supabase
                 .from('photos')
                 .insert({
@@ -327,6 +327,7 @@
     }
 
     async function deletePhoto(photoId) {
+        // 先获取照片信息以便删除 Storage 文件（可选，这里简化处理）
         const { error } = await supabase
             .from('photos')
             .delete()
@@ -363,6 +364,7 @@
         });
         plotListContainer.innerHTML = html;
         
+        // 绑定菜地点击事件
         document.querySelectorAll('.plot-item').forEach(el => {
             el.addEventListener('click', async (e) => {
                 if (e.target.classList.contains('edit-plot') || e.target.classList.contains('delete-plot')) return;
@@ -375,6 +377,7 @@
             });
         });
         
+        // 编辑菜地
         document.querySelectorAll('.edit-plot').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -389,6 +392,7 @@
             });
         });
         
+        // 删除菜地
         document.querySelectorAll('.delete-plot').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -606,23 +610,21 @@
         renderCurrentPlotDetails();
     });
     
-    // 登录（使用用户名+密码，自动转换为邮箱）
+    // 登录
     document.getElementById('doLoginBtn').addEventListener('click', async () => {
-        const username = document.getElementById('loginUsername').value.trim();
+        const email = document.getElementById('loginEmail').value.trim();
         const password = document.getElementById('loginPassword').value;
-        if (!username || !password) { alert("请填写用户名和密码"); return; }
-        const email = usernameToEmail(username);
+        if (!email || !password) { alert("请填写邮箱和密码"); return; }
         try {
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
             if (error) throw error;
             currentUser = data.user;
-            // 显示用户名（取邮箱前缀）
-            currentUserNameSpan.innerText = username;
+            currentUserNameSpan.innerText = currentUser.email;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             await renderPlotsList();
         } catch (err) {
-            alert("登录失败：" + err.message + "\n请确认用户名和密码正确");
+            alert("登录失败：" + err.message);
         }
     });
     
@@ -633,7 +635,7 @@
         currentPlotId = null;
         loginPanel.style.display = 'flex';
         appPanel.style.display = 'none';
-        document.getElementById('loginUsername').value = '';
+        document.getElementById('loginEmail').value = '';
         document.getElementById('loginPassword').value = '';
     });
     
@@ -641,9 +643,7 @@
     supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
             currentUser = session.user;
-            // 从邮箱中提取用户名（去掉域名）
-            const username = session.user.email.split(USERNAME_DOMAIN)[0];
-            currentUserNameSpan.innerText = username;
+            currentUserNameSpan.innerText = currentUser.email;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             renderPlotsList();
@@ -653,8 +653,7 @@
     supabase.auth.onAuthStateChange((event, session) => {
         if (session) {
             currentUser = session.user;
-            const username = session.user.email.split(USERNAME_DOMAIN)[0];
-            currentUserNameSpan.innerText = username;
+            currentUserNameSpan.innerText = currentUser.email;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             renderPlotsList();
