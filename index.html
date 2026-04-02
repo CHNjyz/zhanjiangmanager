@@ -55,11 +55,12 @@
         i { pointer-events: none; }
         button i { pointer-events: auto; }
     </style>
+    <!-- 使用 unpkg 加载 Supabase SDK（国内访问相对稳定） -->
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="container">
-    <!-- 登录区域 -->
+    <!-- 登录区域 - 用户名密码登录 -->
     <div id="loginPanel" class="login-wrapper">
         <div class="login-card">
             <div class="login-header">
@@ -68,8 +69,8 @@
                 <p>登录后管理您的菜园</p>
             </div>
             <div class="input-group">
-                <label><i class="fas fa-envelope"></i> 用户名</label>
-                <input type="email" id="loginEmail" placeholder="your@email.com">
+                <label><i class="fas fa-user"></i> 用户名</label>
+                <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="off">
             </div>
             <div class="input-group">
                 <label><i class="fas fa-lock"></i> 密码</label>
@@ -82,7 +83,7 @@
         </div>
     </div>
 
-    <!-- 主应用面板 -->
+    <!-- 主应用面板（登录后显示） -->
     <div id="appPanel" style="display: none;">
         <div class="app-header">
             <div class="logo"><i class="fas fa-carrot"></i> 我的菜地</div>
@@ -150,11 +151,24 @@
 
 <script>
     // ==================== Supabase 配置 ====================
-    // 请替换为您的 Supabase 项目信息（从 Settings → API 获取）
-    const SUPABASE_URL = 'https://rqqmanysmubzlkevkmhj.supabase.co';      // 替换为您的 Project URL
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcW1hbnlzbXViemxrZXZrbWhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwOTQ5OTEsImV4cCI6MjA5MDY3MDk5MX0.0EBYH6XBVhAbXyqzMponf1cIVCK1Z4aEJkwZ4Zc8AZs';  // 替换为您的 anon public key
-    
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const SUPABASE_URL = 'https://rqqmanysmubzlkevkmhj.supabase.co';      // 您的 Project URL
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcW1hbnlzbXViemxrZXZrbWhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwOTQ5OTEsImV4cCI6MjA5MDY3MDk5MX0.0EBYH6XBVhAbXyqzMponf1cIVCK1Z4aEJkwZ4Zc8AZs';
+    const USERNAME_DOMAIN = '@local.com';  // 用户名转邮箱的域名
+
+    // 等待 SDK 加载完成后再创建客户端
+    function initSupabase() {
+        if (!window.supabase) {
+            console.error('Supabase SDK 未加载，请检查网络后刷新重试');
+            alert('网络错误：无法加载 Supabase SDK，请检查网络后刷新页面');
+            return null;
+        }
+        return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+
+    const sb = initSupabase();
+    if (!sb) {
+        throw new Error('Supabase 初始化失败');
+    }
 
     let currentUser = null;
     let currentPlotId = null;
@@ -171,31 +185,39 @@
     const activityTimelineDiv = document.getElementById('activityTimeline');
 
     // ========== 辅助函数 ==========
-    function escapeHtml(str) { 
-        if(!str) return ''; 
-        return str.replace(/[&<>]/g, function(m){ 
-            if(m==='&') return '&amp;'; 
-            if(m==='<') return '&lt;'; 
-            if(m==='>') return '&gt;'; 
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function (m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
             return m;
-        }); 
+        });
+    }
+
+    // 将用户名转换为邮箱
+    function usernameToEmail(username) {
+        return username.trim() + USERNAME_DOMAIN;
     }
 
     // ========== 云端数据操作 ==========
     async function getPlots() {
         if (!currentUser) return [];
-        const { data, error } = await supabase
+        const { data, error } = await sb
             .from('plots')
             .select('*')
             .eq('user_id', currentUser.id)
             .order('created_at', { ascending: false });
-        if (error) { console.error('获取菜地失败:', error); return []; }
+        if (error) {
+            console.error('获取菜地失败:', error);
+            return [];
+        }
         return data || [];
     }
 
     async function addPlot(name, cropType) {
         if (!currentUser) return null;
-        const { data, error } = await supabase
+        const { data, error } = await sb
             .from('plots')
             .insert({
                 name: name,
@@ -205,12 +227,15 @@
             })
             .select()
             .single();
-        if (error) { console.error('添加菜地失败:', error); return null; }
+        if (error) {
+            console.error('添加菜地失败:', error);
+            return null;
+        }
         return data;
     }
 
     async function updatePlot(plotId, updates) {
-        const { error } = await supabase
+        const { error } = await sb
             .from('plots')
             .update(updates)
             .eq('id', plotId)
@@ -219,12 +244,9 @@
     }
 
     async function deletePlot(plotId) {
-        // 先删除关联的施肥记录
-        await supabase.from('fertilizations').delete().eq('plot_id', plotId);
-        // 再删除关联的照片记录
-        await supabase.from('photos').delete().eq('plot_id', plotId);
-        // 最后删除菜地
-        const { error } = await supabase
+        await sb.from('fertilizations').delete().eq('plot_id', plotId);
+        await sb.from('photos').delete().eq('plot_id', plotId);
+        const { error } = await sb
             .from('plots')
             .delete()
             .eq('id', plotId)
@@ -233,17 +255,20 @@
     }
 
     async function getFertilizations(plotId) {
-        const { data, error } = await supabase
+        const { data, error } = await sb
             .from('fertilizations')
             .select('*')
             .eq('plot_id', plotId)
             .order('created_at', { ascending: false });
-        if (error) { console.error('获取施肥记录失败:', error); return []; }
+        if (error) {
+            console.error('获取施肥记录失败:', error);
+            return [];
+        }
         return data || [];
     }
 
     async function addFertilizer(plotId, date, type, amount) {
-        const { error } = await supabase
+        const { error } = await sb
             .from('fertilizations')
             .insert({
                 plot_id: plotId,
@@ -256,7 +281,7 @@
     }
 
     async function deleteFertilizer(fertId) {
-        const { error } = await supabase
+        const { error } = await sb
             .from('fertilizations')
             .delete()
             .eq('id', fertId);
@@ -264,18 +289,20 @@
     }
 
     async function getPhotos(plotId) {
-        const { data, error } = await supabase
+        const { data, error } = await sb
             .from('photos')
             .select('*')
             .eq('plot_id', plotId)
             .order('created_at', { ascending: false });
-        if (error) { console.error('获取照片失败:', error); return []; }
+        if (error) {
+            console.error('获取照片失败:', error);
+            return [];
+        }
         return data || [];
     }
 
     async function addPhotoRecord(plotId, imageData) {
         try {
-            // 将 base64 转换为 Blob
             const base64Data = imageData.split(',')[1];
             const byteCharacters = atob(base64Data);
             const byteArrays = [];
@@ -288,29 +315,25 @@
                 byteArrays.push(new Uint8Array(byteNumbers));
             }
             const blob = new Blob(byteArrays, { type: 'image/jpeg' });
-            
-            // 生成唯一文件名
+
             const fileName = `${Date.now()}.jpg`;
             const filePath = `${currentUser.id}/${fileName}`;
-            
-            // 上传到 Storage
-            const { error: uploadError } = await supabase.storage
+
+            const { error: uploadError } = await sb.storage
                 .from('garden-photos')
                 .upload(filePath, blob);
-            
+
             if (uploadError) {
                 console.error('上传照片失败:', uploadError);
                 alert('上传失败：' + uploadError.message);
                 return;
             }
-            
-            // 获取公开 URL
-            const { data: urlData } = supabase.storage
+
+            const { data: urlData } = sb.storage
                 .from('garden-photos')
                 .getPublicUrl(filePath);
-            
-            // 保存记录到数据库
-            const { error: insertError } = await supabase
+
+            const { error: insertError } = await sb
                 .from('photos')
                 .insert({
                     plot_id: plotId,
@@ -318,7 +341,7 @@
                     date: new Date().toLocaleString(),
                     created_at: Date.now()
                 });
-            
+
             if (insertError) console.error('保存照片记录失败:', insertError);
         } catch (err) {
             console.error('添加照片失败:', err);
@@ -327,8 +350,7 @@
     }
 
     async function deletePhoto(photoId) {
-        // 先获取照片信息以便删除 Storage 文件（可选，这里简化处理）
-        const { error } = await supabase
+        const { error } = await sb
             .from('photos')
             .delete()
             .eq('id', photoId);
@@ -345,7 +367,7 @@
             renderEmptyDetail();
             return;
         }
-        
+
         let html = '';
         plots.forEach(plot => {
             const isActive = (currentPlotId === plot.id);
@@ -363,8 +385,7 @@
             `;
         });
         plotListContainer.innerHTML = html;
-        
-        // 绑定菜地点击事件
+
         document.querySelectorAll('.plot-item').forEach(el => {
             el.addEventListener('click', async (e) => {
                 if (e.target.classList.contains('edit-plot') || e.target.classList.contains('delete-plot')) return;
@@ -376,8 +397,7 @@
                 }
             });
         });
-        
-        // 编辑菜地
+
         document.querySelectorAll('.edit-plot').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -391,8 +411,7 @@
                 await renderPlotsList();
             });
         });
-        
-        // 删除菜地
+
         document.querySelectorAll('.delete-plot').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -403,7 +422,7 @@
                 await renderPlotsList();
             });
         });
-        
+
         if ((!currentPlotId || !plots.find(p => p.id === currentPlotId)) && plots.length > 0) {
             currentPlotId = plots[0].id;
             await renderPlotsList();
@@ -427,11 +446,11 @@
         }
         selectedPlotNameSpan.innerText = plot.name;
         selectedCropTypeSpan.innerHTML = `<i class="fas fa-apple-alt"></i> 品种：${escapeHtml(plot.crop_type)}`;
-        
+
         const ferts = await getFertilizations(currentPlotId);
         const photos = await getPhotos(currentPlotId);
         let timeline = [];
-        
+
         ferts.forEach(f => {
             timeline.push({
                 type: 'fertilizer', id: f.id, date: f.date, sortTime: new Date(f.date).getTime(),
@@ -444,9 +463,9 @@
                 imageUrl: p.image_url
             });
         });
-        
-        const start = currentDateFilter.startDate ? new Date(currentDateFilter.startDate).setHours(0,0,0,0) : null;
-        const end = currentDateFilter.endDate ? new Date(currentDateFilter.endDate).setHours(23,59,59,999) : null;
+
+        const start = currentDateFilter.startDate ? new Date(currentDateFilter.startDate).setHours(0, 0, 0, 0) : null;
+        const end = currentDateFilter.endDate ? new Date(currentDateFilter.endDate).setHours(23, 59, 59, 999) : null;
         if (start || end) {
             timeline = timeline.filter(r => {
                 const time = r.sortTime;
@@ -456,13 +475,13 @@
                 return true;
             });
         }
-        timeline.sort((a,b) => b.sortTime - a.sortTime);
-        
+        timeline.sort((a, b) => b.sortTime - a.sortTime);
+
         if (timeline.length === 0) {
             activityTimelineDiv.innerHTML = '<div class="empty-tip">暂无活动记录</div>';
             return;
         }
-        
+
         let html = '';
         timeline.forEach(r => {
             if (r.type === 'fertilizer') {
@@ -485,7 +504,7 @@
             }
         });
         activityTimelineDiv.innerHTML = html;
-        
+
         document.querySelectorAll('.del-fertilizer').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const fertId = btn.dataset.id;
@@ -501,7 +520,7 @@
             });
         });
     }
-    
+
     function renderEmptyDetail() {
         selectedPlotNameSpan.innerText = '未选中菜地';
         selectedCropTypeSpan.innerText = '--';
@@ -517,19 +536,25 @@
         await addPlot(name.trim(), crop.trim());
         await renderPlotsList();
     });
-    
+
     document.getElementById('submitFertilizerBtn').addEventListener('click', async () => {
-        if (!currentPlotId) { alert("请先选择菜地"); return; }
+        if (!currentPlotId) {
+            alert("请先选择菜地");
+            return;
+        }
         const date = document.getElementById('fertDate').value;
         const type = document.getElementById('fertType').value.trim();
         const amount = document.getElementById('fertAmount').value.trim();
-        if (!date || !type || !amount) { alert("请完整填写施肥信息"); return; }
+        if (!date || !type || !amount) {
+            alert("请完整填写施肥信息");
+            return;
+        }
         await addFertilizer(currentPlotId, date, type, amount);
         document.getElementById('fertType').value = '';
         document.getElementById('fertAmount').value = '';
         await renderCurrentPlotDetails();
     });
-    
+
     // 摄像头相关
     async function openCameraModal() {
         const modal = document.getElementById('cameraModal');
@@ -545,7 +570,7 @@
             modal.style.display = 'none';
         }
     }
-    
+
     function capturePhoto() {
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -564,7 +589,7 @@
             closeCameraModal();
         }
     }
-    
+
     function closeCameraModal() {
         const modal = document.getElementById('cameraModal');
         if (videoStream) {
@@ -573,7 +598,7 @@
         }
         modal.style.display = 'none';
     }
-    
+
     document.getElementById('openCameraBtn').addEventListener('click', openCameraModal);
     document.getElementById('uploadPhotoBtn').addEventListener('click', () => {
         const input = document.createElement('input');
@@ -594,12 +619,15 @@
     });
     document.getElementById('captureBtn').addEventListener('click', capturePhoto);
     document.getElementById('closeCameraBtn').addEventListener('click', closeCameraModal);
-    
+
     // 日期筛选
     document.getElementById('applyDateFilter').addEventListener('click', () => {
         const start = document.getElementById('startDate').value;
         const end = document.getElementById('endDate').value;
-        if (start && end && start > end) { alert("起始日期不能大于结束日期"); return; }
+        if (start && end && start > end) {
+            alert("起始日期不能大于结束日期");
+            return;
+        }
         currentDateFilter = { startDate: start || null, endDate: end || null };
         renderCurrentPlotDetails();
     });
@@ -609,51 +637,57 @@
         currentDateFilter = { startDate: null, endDate: null };
         renderCurrentPlotDetails();
     });
-    
+
     // 登录
     document.getElementById('doLoginBtn').addEventListener('click', async () => {
-        const email = document.getElementById('loginEmail').value.trim();
+        const username = document.getElementById('loginUsername').value.trim();
         const password = document.getElementById('loginPassword').value;
-        if (!email || !password) { alert("请填写邮箱和密码"); return; }
+        if (!username || !password) {
+            alert("请填写用户名和密码");
+            return;
+        }
+        const email = usernameToEmail(username);
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            const { data, error } = await sb.auth.signInWithPassword({ email, password });
             if (error) throw error;
             currentUser = data.user;
-            currentUserNameSpan.innerText = currentUser.email;
+            currentUserNameSpan.innerText = username;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             await renderPlotsList();
         } catch (err) {
-            alert("登录失败：" + err.message);
+            alert("登录失败：" + err.message + "\n请确认用户名和密码正确");
         }
     });
-    
+
     // 退出
     document.getElementById('logoutBtn').addEventListener('click', async () => {
-        await supabase.auth.signOut();
+        await sb.auth.signOut();
         currentUser = null;
         currentPlotId = null;
         loginPanel.style.display = 'flex';
         appPanel.style.display = 'none';
-        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginUsername').value = '';
         document.getElementById('loginPassword').value = '';
     });
-    
+
     // 检查登录状态
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    sb.auth.getSession().then(({ data: { session } }) => {
         if (session) {
             currentUser = session.user;
-            currentUserNameSpan.innerText = currentUser.email;
+            const username = session.user.email.split(USERNAME_DOMAIN)[0];
+            currentUserNameSpan.innerText = username;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             renderPlotsList();
         }
     });
-    
-    supabase.auth.onAuthStateChange((event, session) => {
+
+    sb.auth.onAuthStateChange((event, session) => {
         if (session) {
             currentUser = session.user;
-            currentUserNameSpan.innerText = currentUser.email;
+            const username = session.user.email.split(USERNAME_DOMAIN)[0];
+            currentUserNameSpan.innerText = username;
             loginPanel.style.display = 'none';
             appPanel.style.display = 'block';
             renderPlotsList();
@@ -663,8 +697,8 @@
             appPanel.style.display = 'none';
         }
     });
-    
-    document.getElementById('fertDate').value = new Date().toISOString().slice(0,10);
+
+    document.getElementById('fertDate').value = new Date().toISOString().slice(0, 10);
 </script>
 </body>
 </html>
